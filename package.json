@@ -1,0 +1,76 @@
+{
+  "name": "@hamolus/core",
+  "version": "0.2.8",
+  "type": "module",
+  "license": "MIT",
+  "author": "Gilang Albathin Nurhabibi <https://github.com/athron98>",
+  "homepage": "https://github.com/hamolus-labs/hamolus/tree/main/packages/core#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamolus-labs/hamolus.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/hamolus-labs/hamolus/issues"
+  },
+  "keywords": [
+    "hamolus",
+    "cloudflare",
+    "workers",
+    "d1",
+    "hono",
+    "drizzle",
+    "headless-cms",
+    "multi-tenant"
+  ],
+  "description": "The Hamolus core API: a Hono + Drizzle Cloudflare Worker that turns collection metadata into a dynamic, multi-tenant CRUD API on D1, with KV settings, R2 media/file libraries, panel ACLs and an MCP-ready surface.",
+  "files": [
+    "src",
+    "docs",
+    "scripts",
+    "wrangler.jsonc",
+    "drizzle.config.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "//exports": "Source distribution: the package ships raw TypeScript (see `files`), so generated projects can wrap the Worker in a local seam file without a build step. Wrangler/esbuild compile the `.ts` entry directly.",
+  "types": "./src/index.ts",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "rm -rf dist && wrangler deploy --dry-run --outdir=dist",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "db:setup": "wrangler d1 execute hamolus --local --file=scripts/bootstrap.sql",
+    "check:code-definitions": "node scripts/check-code-definitions.mjs",
+    "check:panel-acl": "node scripts/check-panel-acl.mjs",
+    "check:scope-colony-resolution": "node scripts/check-scope-colony-resolution.mjs",
+    "check:localization": "node scripts/check-localization.mjs",
+    "check:localization-api": "node scripts/check-localization-api.mjs"
+  },
+  "dependencies": {
+    "@hamolus/types": "^0.2.8",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260920.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "~5.9.0",
+    "wrangler": "^4.135.0"
+  }
+}

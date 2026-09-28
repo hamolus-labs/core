@@ -1,0 +1,46 @@
+{
+  // Cloudflare Worker — the Hamolus core API.
+  // Dev: `pnpm -F @hamolus/core dev` · Bundle check: `pnpm -F @hamolus/core build`
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hamolus-core",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // D1 database (records + collection metadata).
+  // The ids below are PLACEHOLDERS: create your own resources and paste the real
+  // ids, or use a generated deployment configuration instead:
+  //   hamolus add configuration <name>   →   configs/<name>/wrangler.jsonc
+  // which ships the same bindings with a `verify.mjs` that reports leftover placeholders.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hamolus"
+    }
+  ],
+
+  // KV namespace (settings blob: settings:v1)
+  "kv_namespaces": [
+    {
+      "binding": "SETTINGS"
+    }
+  ],
+
+  // R2 bucket (media + file objects)
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "hamolus-media"
+    }
+  ],
+
+  "vars": {
+    // Credentials (JWT_SECRET, ADMIN_KEY, PANEL_ASSET_SECRET) are set as SECRETS,
+    // never as vars: `wrangler secret put JWT_SECRET`. A secret cannot share a name
+    // with a var, so none are declared here.
+    // PUBLIC_GETS=true lets the generated console read collections/settings without
+    // a token (GET only); writes and /api/_auth/* always require a session.
+    // Set it to "false" for anything public-facing and hand out scoped tokens instead.
+    "PUBLIC_GETS": "true"
+  }
+}

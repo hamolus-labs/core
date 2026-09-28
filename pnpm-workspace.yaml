@@ -1,0 +1,16 @@
+# Written by scripts/export-deploy-repo.mjs — do not edit by hand.
+
+# pnpm >= 10 blocks dependency lifecycle scripts unless they are allowlisted here,
+# and `workerd` IS the Workers runtime: block it and wrangler cannot start, so the
+# Cloudflare build fails on policy rather than on code. This list mirrors the
+# monorepo root pnpm-workspace.yaml; pnpm adds a placeholder here for any package
+# it sees a build script for, and an unresolved placeholder fails the install.
+allowBuilds:
+  core-js-pure: true
+  esbuild: true
+  workerd: true
+
+# Published from the same release as this repository, so necessarily newer than
+# any minimum-release-age window.
+minimumReleaseAgeExclude:
+  - '@hamolus/types@0.2.8'

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-lib/
+*.tsbuildinfo
+.turbo/
+
+# Cloudflare local state
+.wrangler/
+.dev.vars
+
+# env & secrets — never commit
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store
