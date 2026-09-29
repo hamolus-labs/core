@@ -1,6 +1,6 @@
 {
   "name": "@hamolus/core",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "type": "module",
   "license": "MIT",
   "author": "Gilang Albathin Nurhabibi <https://github.com/athron98>",
@@ -58,11 +58,13 @@
     "check:code-definitions": "node scripts/check-code-definitions.mjs",
     "check:panel-acl": "node scripts/check-panel-acl.mjs",
     "check:scope-colony-resolution": "node scripts/check-scope-colony-resolution.mjs",
+    "check:config-scope-acl": "node scripts/check-config-scope-acl.mjs",
+    "check:config-migration": "node scripts/check-config-migration.mjs",
     "check:localization": "node scripts/check-localization.mjs",
     "check:localization-api": "node scripts/check-localization-api.mjs"
   },
   "dependencies": {
-    "@hamolus/types": "^0.2.8",
+    "@hamolus/types": "^0.2.9",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.8",
     "zod": "^4.6.5"

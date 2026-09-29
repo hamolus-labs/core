@@ -24,7 +24,7 @@ off the same core API.
                          │ D1           │ KV
                          ▼              ▼
                     metadata tables   settings blob
-                    + dynamic tables  ("settings:v1")
+                    + dynamic tables  (settings:{land}:{colony}:v1)
 ```
 
 ## The core (packages/core)
@@ -49,7 +49,8 @@ A single Cloudflare Worker using **Hono**, **Drizzle ORM (D1/SQLite)**, and
   collection definition, with whitelisted identifiers (SQL-injection safe).
 - `src/db/coerce.ts` — value coercion into/out of D1 (`boolean → 0/1`,
   `json → TEXT`, numbers, etc.).
-- `src/meta/settings.ts` — KV-backed settings blob under the `settings:v1` key.
+- `src/meta/settings.ts` — KV-backed settings blob, keyed
+  `settings:{land}:{colony}:v1` (the root scope keeps the legacy `settings:v1`).
 - `src/meta/groups.ts` — self-parenting navigation group registry
   (`_meta_groups` table, auto-bootstrapped like `_meta_collections`): `listGroups`,
   `putGroup` (parent-exists + cycle + snake_case validation), `deleteGroup`
@@ -114,8 +115,10 @@ owns the machinery; `meta/lands.ts` and `meta/colonies.ts` are the registries.
   whole middleware chain.
 - **Isolation**: `physicalTable(land, name)` — bare `{name}` for the default land,
   `{land}__{name}` otherwise — applies to collections, per-land records and
-  `{land}__privileges`. Settings are KV-isolated under `settings:{land}:v1`
-  (default keeps legacy `settings:v1`). `config` rows key on `(land, key)`.
+  `{land}__privileges`. Settings are KV-isolated under `settings:{land}:{colony}:v1`
+  (the root scope keeps the legacy `settings:v1`). `_configs` rows key on
+  `(land, colony, key)` and carry no `scope` column, so a key exists once per colony
+  and there is no category to filter on.
 - **Auth**: one global `_auth_users` table keyed by `(land, colony, id)` with a
   globally unique `username`; login resolves the scope from the username row and
   JWTs carry `land` + `colony` + `scope` claims. A header/claim mismatch is
@@ -123,6 +126,9 @@ owns the machinery; `meta/lands.ts` and `meta/colonies.ts` are the registries.
   Privileges bootstrap lazily per scope with stable UUIDs, so role ids match
   across scopes. Three privilege scopes: `universe` (superadmin), `land`
   (`land_admin`, owns one land and its colonies) and `colony` (everyone else).
+  **Authorisation follows the scope claim, never the role name** — the default colony
+  role is called `admin`, and treating that name as platform-wide would hand every
+  colony administrator the whole platform.
 - **Scopes**: global paths are `health`, `_auth/{token,login,setup,me,supers}`,
   `_meta/universe/{lands,colonies}`; everything else (settings/groups/collections/
   stats, users/config, media/document/attachment libraries, dynamic CRUD) is
@@ -133,7 +139,8 @@ owns the machinery; `meta/lands.ts` and `meta/colonies.ts` are the registries.
   `/api/_meta/universe/lands/{id}` stays global).
 - **Isolation**: collections, the `privileges` bootstrap table and every record
   table live in a per-land table namespace (`{land}__{name}`), settings KV is
-  keyed `settings:{land}:v1` (the default land keeps `settings:v1`), and the
+  keyed `settings:{land}:{colony}:v1` (the root scope keeps the legacy
+  `settings:v1`), and the
   media / document / attachment libraries carry a `land` column. Auth users are
   global with a `land` column and a JWT `land` claim.
 - **Deletion is a purge**: `meta/lands.ts::deleteLand` drops metadata first

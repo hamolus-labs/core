@@ -31,8 +31,15 @@ export function hasPermission(payload: AuthTokenPayload | undefined, perm: Permi
   return (payload.permissions ?? []).includes(perm)
 }
 
-/** Writes always require an authenticated session with the given permission. */
-export function requireWrite(payload: AuthTokenPayload | undefined, perm: Permission): void {
+/**
+ * Writes always require an authenticated session with the given permission.
+ * Asserts like `requireSession` so a route can keep using the payload afterwards
+ * without re-narrowing it at every call site.
+ */
+export function requireWrite(
+  payload: AuthTokenPayload | undefined,
+  perm: Permission,
+): asserts payload is AuthTokenPayload {
   requireSession(payload, perm)
 }
 

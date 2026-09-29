@@ -84,11 +84,24 @@ Need a core running on `127.0.0.1:8787` (`pnpm -F @hamolus/core dev`):
 ```bash
 pnpm check:panel-acl
 pnpm check:scope-colony-resolution
+pnpm check:config-scope-acl
+pnpm check:config-migration
 pnpm check:localization-api
 ```
 
 `check:panel-acl` is the one that says "a locked input is the correct behaviour" — a
 panel view's `fields.write` is enforced over HTTP, not in the UI.
+
+`check:config-scope-acl` exists because a `_configs` row is keyed by
+`(land, colony, key)`: the `?land=` / `?colony=` query on `/_config` is a *request*, and
+the bug it invites is reading it as a grant. It also pins that reach follows the
+privilege's **scope** and never its name — the default colony role is called `admin`, so
+`role === 'admin'` would hand every colony administrator the whole platform.
+
+`check:config-migration` boots a real core on a scratch D1 holding a pre-`scope`
+`_configs` table — one key under two scopes, which is what `(scope, key)` used to allow
+and `(land, colony, key)` does not. It is the only check of the rebuild's data handling,
+and it fails loudly if the copy is not collision-tolerant.
 
 ## Conventions
 

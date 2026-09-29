@@ -221,6 +221,80 @@ curl -X PUT http://localhost:8787/api/_meta/settings \
   -d '{"site":{"name":"Acme","navigation":[{"label":"Home","href":"/"}]}}'
 ```
 
+`GET` is anonymous-readable while `PUBLIC_GETS=true`; `PUT` needs `settings.write`.
+
+## Key/value configuration entries (`/_config`)
+
+The **other** store — D1 rows, not KV. Same screen in the console, different semantics.
+A row belongs to a **colony**; there is no `scope` column and no `?scope=` filter.
+
+| Method | Endpoint             | Permission     | Behavior                                     |
+| ------ | -------------------- | -------------- | -------------------------------------------- |
+| GET    | `/_config`           | `config.read`  | List entries this session may see. `?land=` narrows to one land (all of its colonies), `?colony=` to one colony. Omit both for everything reachable. `ORDER BY colony, key` |
+| GET    | `/_config/{key}`     | `config.read`  | One entry, or `404`                          |
+| PUT    | `/_config/{key}`     | `config.write` | Upsert on `(land, colony, key)`; body `key` must match the path |
+| DELETE | `/_config/{key}`     | `config.write` | `204`; `404` when the key is not in this colony |
+
+```bash
+curl -X PUT 'http://localhost:8787/api/_config/site.social?colony=kitchen_cny' \
+  -H 'authorization: Bearer <jwt>' -H 'content-type: application/json' \
+  -d '{"description":"Footer links","value":{"github":"…"}}'
+```
+
+```jsonc
+// GET /api/_config?land=kitchen_lnd
+{
+  "data": [
+    {
+      "key": "site.social",
+      "value": { "github": "https://github.com/hamolus-labs" },
+      "land": "kitchen_lnd",
+      "colony": "kitchen_cny",
+      "description": "Footer links",
+      "updatedAt": "2026-09-28T04:38:22.014Z"
+    }
+  ]
+}
+```
+
+### Who may read and write what
+
+The reach of a session comes from the **scope** of its privilege, not from the target it
+asks for. A target is a request for something the session may already have; it is never a
+grant.
+
+| Session | `GET /_config` | Single-entry `GET`/`PUT`/`DELETE` |
+| ------- | -------------- | ---------------------------------- |
+| Platform admin (`universe` privilege, or a legacy `ADMIN_KEY` login) | every land | any colony; `?colony=` optional, defaults to the request scope |
+| Land admin | its own land, all colonies | requires `?colony=`; without it `400 SCOPE_REQUIRED` naming the parameter |
+| Colony admin | its own colony only | its own colony only |
+
+Asking for something out of reach is refused, not silently narrowed: a land admin naming
+another land gets `403`, and one naming a colony of another land gets `403` as well. An
+unregistered colony id is `404`, so a typo cannot invent a row.
+
+Rules the implementation actually enforces:
+
+- `key` matches `^[a-z][a-z0-9._-]*$`, ≤ 100 chars (`configEntrySchema`). The column is
+  `COLLATE NOCASE`, so keys compare case-insensitively even though the pattern forbids
+  uppercase.
+- `value` is stored as text and parsed back on read, so a string round-trips as a
+  string (`"123"` stays `"123"`, it does not come back as the number `123`). A row
+  written by a core before that was true is still read leniently: a column that is not
+  valid JSON is returned as the raw string.
+- The same key exists once per **colony**, so two colonies of one land hold two
+  independent values. Naming a land on a `GET` means "all colonies of this land"; naming
+  it alongside a `?colony=` is a claim about the same row and is `400 SCOPE_MISMATCH`
+  when the registry says otherwise.
+- The table is `_configs`, created on first use by `ensureConfigTable()`. A table from
+  before this change carries a `scope` column and a `(scope, key)` primary key; it is
+  rebuilt with `(land, colony, key)` on first use, keeping the rows it had. Classifying
+  them by scope is not attempted — the old values had no colony to point at, so a fresh
+  write is the only honest way to place a row.
+- Nothing in the core *reads* these rows to render anything. They are a typed key/value
+  store for your own app, agent or MCP server.
+- Gate: `check:config-scope-acl`.
+
 ### Effective localization (`/_meta/localization`)
 
 | Method | Endpoint              | Behavior                                        |

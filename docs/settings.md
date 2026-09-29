@@ -1,15 +1,28 @@
 # KV-backed settings (`/api/_meta/settings`)
 
 Settings are a **single free-form JSON object** stored in a Cloudflare KV namespace
-under the key `settings:v1` (binding name `SETTINGS`). This is the config bucket for
-stuff that shouldn't require redeploying a Worker or a D1 table — site config,
-navigation, UI copy, feature toggles, third-party keys for frontends, etc.
+(binding name `SETTINGS`). This is the config bucket for stuff that shouldn't require
+redeploying a Worker or a D1 table — site config, navigation, UI copy, feature toggles,
+third-party keys for frontends, etc.
+
+## The key is per scope
+
+| Request scope | KV key |
+| ------------- | ------ |
+| root land + root colony | `settings:v1` (the legacy key, kept so pre-scope blobs keep working) |
+| any other land/colony | `settings:{land}:{colony}:v1` |
+
+`settingsKey()` in `src/meta/settings.ts` is the only place that builds this. The same
+split applies to the key/value entries in `src/auth/config.ts` (`_configs`, keyed by
+`(land, colony, key)`) — those are a different store, documented in the console guide.
 
 ## API
 
 - `GET /api/_meta/settings` → `{ "data": { … } }` (the whole blob).
 - `PUT /api/_meta/settings` with a JSON **object** body → merges shallowly over the
-  current blob and persists; response is the merged result.
+  current blob and persists; response is the merged result. **There is no way to delete
+  a single top-level key**: a key removed from the body comes back on the next read,
+  because the merge only adds and overwrites.
 
 ```bash
 # login (once)
@@ -27,13 +40,21 @@ curl -s -X PUT http://localhost:8787/api/_meta/settings \
   -d '{"site":{"name":"Acme"}}'
 ```
 
-Both endpoints require a JWT by default (they are NOT public even with
-`PUBLIC_GETS=true`, which only opens GET on `/{collection}` records). Frontends that
-call settings from the edge pass their `CORE_API_TOKEN` like any other request.
+Access is decided by `requireRead` (GET) and `requireWrite` (PUT):
+
+- `PUT` always needs a session with `settings.write`; there is no anonymous path.
+- `GET` needs a session **only if one is presented**: `requireRead` returns early when
+  there is no `Authorization` header, and the auth middleware lets a header-less `GET`
+  through while `PUBLIC_GETS=true`. So a public site build can read the blob with no
+  token. The trap is sending a token that *lacks* `settings.read` — that is a 403, not a
+  silent downgrade to anonymous. A front end that has `CORE_API_TOKEN` should send it.
+- `PUBLIC_GETS=false` closes this along with the rest of the read surface.
 
 ## Recommended shape
 
-The seed writes the canonical example; the public site reads the `site.*` keys:
+The seed writes the canonical example. The `site.*` keys are the conventional place for a
+front end to look, but nothing resolves them for you — a site has to fetch the blob and
+read the keys itself (the templates `hamolus add site` writes do not fetch it at all):
 
 ```jsonc
 {
@@ -56,7 +77,9 @@ The seed writes the canonical example; the public site reads the `site.*` keys:
 ```
 
 Because the blob is free-form, `PUT` never validates a fixed schema — it only requires
-the body to be a JSON object. The console's **Settings** page edits it as JSON.
+the body to be a JSON object. The console's **Settings blob** section on `/config` edits
+it as JSON; it loads what the core returned rather than starting from a placeholder, and
+an empty blob gets an explicit "Insert an example" button instead of a prefilled editor.
 
 ## Localization
 
