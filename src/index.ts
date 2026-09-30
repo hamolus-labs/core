@@ -26,6 +26,8 @@ import type { ScopeContext } from './scope'
 import { authRoutes } from './routes/auth'
 import { seedRoutes } from './routes/seed'
 import { configRoutes } from './routes/config'
+import { mcpRoutes } from './routes/mcp'
+import { mcpMachineRoutes } from './routes/mcp-machine'
 import { pluginRoutes } from './routes/plugins'
 import { panelRoutes } from './routes/panels'
 import { dynamicRoutes } from './routes/dynamic'
@@ -65,6 +67,21 @@ type AppEnv = {
 const app = new Hono<AppEnv>()
 
 app.use('/api/*', cors())
+
+// Worker-facing MCP routes, mounted here on purpose: above the scope rewrite and
+// above the JWT middleware, so an instance id is the only credential involved.
+//
+// They are NOT in AUTH_SKIP. That set's skipped branch still runs
+// `applyScope` → `resolveRequestScope`, which rejects a request carrying no
+// `x-land`/`x-colony` on a `centralized` core — and a worker holding only an
+// instance id cannot know its own scope, which is what it is asking for here.
+//
+// Registration order is load-bearing in Hono: a handler registered before
+// `app.use('/api/*', jwt)` runs without it. If these ever move down, the
+// instance id silently starts being checked against a session JWT and every
+// worker 401s. The `check:mcp-instance-acl` gate covers the behaviour; this
+// comment covers the reason it is written this way.
+app.route('/api/_mcp', mcpMachineRoutes)
 
 // Pre-auth scope path rewrite: `/api/{land}[/{colony}]/…` is stripped into the
 // `/api/…` scope with `x-land`/`x-colony` headers and re-dispatched (guarded
@@ -601,6 +618,7 @@ app.route('/api/_media', mediaRoutes)
 app.route('/api/_documents', documentRoutes)
 app.route('/api/_attachments', attachmentRoutes)
 app.route('/api/_config', configRoutes)
+app.route('/api/_mcp', mcpRoutes)
 app.route('/api/_plugins', pluginRoutes)
 app.route('/api/_panels', panelRoutes)
 app.route('/api', dynamicRoutes)

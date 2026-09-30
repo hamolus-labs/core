@@ -758,6 +758,80 @@ The plugin id matches `^[a-z][a-z0-9_-]{0,31}$`, keys
 `^[a-zA-Z0-9._:-]+$` (400 otherwise). A missing key returns 404 — the console's
 `KvClient.get` maps that to `null`.
 
+## MCP instances (`/_mcp`)
+
+Two surfaces share the `/_mcp` prefix and nothing else: the **operator** API a console
+session drives, and two **machine** endpoints an MCP worker calls. They are mounted on
+opposite sides of the JWT middleware (`index.ts:84` and `index.ts:621`) because a worker
+has no session yet — it is trying to find out what it is.
+
+### Operator (console) — `mcp.read` / `mcp.write`
+
+Scoped like any other resource: `?land=` / `?colony=` and the scope headers, and the
+caller must hold the permission **in the instance's own colony**. An instance is bound
+to one colony for its whole life.
+
+| Method   | Path                       | Permission   | Description |
+| -------- | -------------------------- | ------------ | ----------- |
+| `GET`    | `/_mcp/instances`          | `mcp.read`   | List instances in scope. |
+| `GET`    | `/_mcp/instances/:id`      | `mcp.read`   | One instance / `404 NOT_FOUND`. |
+| `POST`   | `/_mcp/instances`          | `mcp.write`  | Create. The **scope comes from the query/session, not the body** — `land`/`colony` in a body are not part of the schema, so a client cannot create an instance in a colony it did not name in the request. |
+| `PUT`    | `/_mcp/instances/:id`      | `mcp.write`  | Partial update: `label`, `enabled`, `readonly`, `toolGroups`, `dynamicCollections`, `dynamicMax`. |
+| `DELETE` | `/_mcp/instances/:id`      | `mcp.write`  | Delete the instance **and its tokens**. |
+| `GET`    | `/_mcp/instances/:id/tokens` | `mcp.read` | List tokens — metadata only, never the secret. |
+| `POST`   | `/_mcp/instances/:id/tokens` | `mcp.write` | Issue a token. `narrowedPermissions` may only **narrow** the instance's derived set, never widen it. The plaintext is in the response **once** and is not retrievable afterwards. |
+| `DELETE` | `/_mcp/tokens/:tokenId`    | `mcp.write`  | Revoke one token. |
+
+An instance carries `label`, `enabled` (default `true`), `readonly` (default `false`),
+`toolGroups` (default `records,media,meta`; `admin` is opt-in), `dynamicCollections`
+and `dynamicMax` (default 10). Its **permissions are derived from those two flags** —
+`readonly` drops every `*.write`, and each group maps to a fixed permission set — so
+changing the surface changes what the core will accept, not merely what the worker
+offers.
+
+### Machine (worker) — instance id in the `Authorization` header
+
+These two are the only ones a worker calls, and the header is **the instance id**, not
+a JWT: `Authorization: Bearer mcp_…`. Deliberately unauthenticated apart from that,
+because a description of the tool surface is not data — but that is exactly why the id
+is a generated high-entropy credential rather than something a person names.
+
+They resolve **no scope from the request**. A worker holding an instance id does not yet
+know its own colony — that is what it is asking for — and on a `centralized` core a
+request with no `x-land`/`x-colony` is a `400`. The instance row carries the only scope
+there is.
+
+| Method | Path                | Returns |
+| ------ | ------------------- | ------- |
+| `GET`  | `/_mcp/config`      | `{ data: { instance } }` — the instance's scope, `enabled`, `readonly`, `toolGroups`, `dynamicCollections`, `dynamicMax`. `403 MCP_DISABLED` when the toggle is off. |
+| `POST` | `/_mcp/session`     | `{ data: { token, expiresAt, instance, tokenId, permissions } }` — a short-lived session JWT to carry for subsequent calls. |
+
+`POST /_mcp/session` takes `{ "token": "<the per-user token>" }` and is where the
+console's decisions become enforcement: the permission list is the instance's derived
+permissions **intersected with** the token's own `narrowedPermissions`, so the JWT a
+worker ends up holding is narrower than the account that issued it. A read-only
+instance mints a token with no `*.write` at all, and `requireWrite` in the rest of the
+core answers `403` — the worker's own read-only check is a friendlier error message, not
+the thing standing between a model and a write.
+
+The minted session has its own subject space, `sub: mcp:{instanceId}:{tokenId}` and
+`role: 'mcp'`, so an MCP request is never mistaken for a console login in a log or in
+`_auth/me`. A bare `mcp:`-free subject would be.
+
+**A token belongs to one instance.** The instance id from the header is passed to
+`verifyMcpToken` alongside the presented token, and a mismatch is rejected — otherwise a
+token issued for a narrow, read-only instance would be redeemable through a different
+instance's worker and the intersection above would never happen. Instance ids and token
+ids are unique across the platform for the same reason.
+
+Status codes are chosen so a worker log tells an operator which of three different
+problems occurred: `401` the credential is not accepted (missing, unknown, malformed),
+`403` the credential is fine but the instance is switched off, `400` the request is
+malformed. The **message** never distinguishes an unknown instance from a revoked token,
+so ids cannot be enumerated; only the status does.
+
+Gate: `check:mcp-instance-acl`.
+
 ## Universe — lands & colonies (`/_meta/universe/lands`, `/_meta/universe/colonies`)
 
 Global registries — these endpoints **ignore** the scope headers. Access is tiered:

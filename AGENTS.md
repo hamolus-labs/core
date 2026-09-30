@@ -83,6 +83,7 @@ Need a core running on `127.0.0.1:8787` (`pnpm -F @hamolus/core dev`):
 
 ```bash
 pnpm check:panel-acl
+pnpm check:mcp-instance-acl
 pnpm check:scope-colony-resolution
 pnpm check:config-scope-acl
 pnpm check:config-migration
@@ -91,6 +92,27 @@ pnpm check:localization-api
 
 `check:panel-acl` is the one that says "a locked input is the correct behaviour" — a
 panel view's `fields.write` is enforced over HTTP, not in the UI.
+
+`check:mcp-instance-acl` exists because an MCP instance is the one resource whose
+*credential* is also its *identity*: a worker authenticates with its instance id
+before it knows its own scope, and the console issues per-user tokens that are
+redeemed for a narrower session. Three things there are easy to break without noticing,
+and the gate pins all of:
+
+- **The machine routes are mounted before the JWT middleware** (`index.ts:84`, against
+  the operator mount at `index.ts:621`). A worker holding an instance id cannot send
+  `x-land`/`x-colony` — it does not know its scope yet, which is the thing it is asking
+  for — so those two handlers resolve nothing from the request. Moving them below the
+  middleware makes every deployment fail with a 400 on a `centralized` core.
+- **A token belongs to one instance.** `verifyMcpToken` takes the header's instance id
+  as a third argument and compares it to the row. Drop that check and a token issued
+  for a narrow read-only instance is redeemable through some other instance's worker, so
+  the permission intersection never happens and the read-only guarantee is gone. It
+  looks redundant because almost every caller passes a matching pair.
+- **The status code is part of the contract**: `401` the credential is not accepted,
+  `403` the credential is fine but the instance is switched off, `400` the request is
+  malformed. The *message* must never separate "unknown id" from "revoked token" or ids
+  become enumerable; only the status may.
 
 `check:config-scope-acl` exists because a `_configs` row is keyed by
 `(land, colony, key)`: the `?land=` / `?colony=` query on `/_config` is a *request*, and

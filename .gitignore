@@ -15,3 +15,11 @@ dist-lib/
 
 *.log
 .DS_Store
+
+# No lockfile on purpose: an exported repo is built by whoever forked it, with
+# whichever package manager Cloudflare picks. Committing ours would pin a
+# resolution that nothing chose — and a stray `pnpm install` before a push would
+# otherwise add it silently.
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
