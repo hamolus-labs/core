@@ -34,7 +34,11 @@
  *      not the worker's own check, is what refuses the write,
  *   6. the operator routes follow the config rules: a colony admin cannot reach a
  *      sibling, a land admin must name a colony, and an unregistered one is refused,
- *   7. `mcp.read` alone cannot create, and `mcp.write` cannot escape its colony.
+ *   7. `mcp.read` alone cannot create, and `mcp.write` cannot escape its colony,
+ *   8. a machine call records the deployment's version and last-seen time, and
+ *      **nothing an operator sends can write either** — the reported version is what
+ *      the console shows, so an operator-supplied one would let the console certify a
+ *      release that is not deployed.
  *
  *   BASE=http://localhost:8787 ADMIN_KEY=dev-admin-key-change-me \
  *     node packages/core/scripts/check-mcp-instance-acl.mjs
@@ -93,6 +97,10 @@ const areq = (path, init = {}, token = admin) =>
   })
 const postJson = async (path, body, token = admin) => {
   const res = await areq(path, { method: 'POST', body: JSON.stringify(body) }, token)
+  return [res.status, await json(res)]
+}
+const getJson = async (path, token = admin) => {
+  const res = await areq(path, { method: 'GET' }, token)
   return [res.status, await json(res)]
 }
 const putJson = async (path, body, token = admin) => {
@@ -215,6 +223,75 @@ try {
   ok('the config reports the tool groups it was created with', JSON.stringify(cfg?.toolGroups) === JSON.stringify(['records', 'media']), JSON.stringify(cfg?.toolGroups))
   // The worker learns its own scope *from* this call, so the response must not need one.
   ok('the config call works with no x-land or x-colony header', goodId.status === 200, `status ${goodId.status}`)
+
+  /* -- 8: the deployment reports itself, and only the deployment may --------- */
+  const readInstance = async () => {
+    const [, listBody] = await getJson(`/api/_mcp/instances?colony=${COLONY_A}`)
+    return (listBody?.data ?? []).find((i) => i.id === instanceId)
+  }
+
+  // A heartbeat rides on a call that happens anyway (config is re-read about once a
+  // minute), so it is recorded only *after* the credential is accepted. Compared as a
+  // before/after rather than against `null`, because the `goodId` read above already
+  // made this instance live — an absolute check here would be asserting the state of a
+  // call that happened earlier, not the effect of this one.
+  const seenBefore = (await readInstance())?.lastSeenAt
+  await mreq('/api/_mcp/config', 'mcp_0000000000000000000000abcd', {
+    headers: { 'x-hamolus-mcp-version': '9.9.9' },
+  })
+  ok(
+    'a rejected id records no heartbeat',
+    (await readInstance())?.lastSeenAt === seenBefore,
+    `${seenBefore} -> ${(await readInstance())?.lastSeenAt}`,
+  )
+
+  await mreq('/api/_mcp/config', instanceId, { headers: { 'x-hamolus-mcp-version': '0.2.10' } })
+  const afterBeat = await readInstance()
+  ok('a machine call records the reported version', afterBeat?.reportedVersion === '0.2.10', JSON.stringify(afterBeat).slice(0, 200))
+  ok('a machine call records a last-seen time', typeof afterBeat?.lastSeenAt === 'string', JSON.stringify(afterBeat).slice(0, 200))
+
+  // Over-long claims are dropped rather than truncated: a version cut mid-string is a
+  // wrong answer, and "did not report" is not.
+  await mreq('/api/_mcp/config', instanceId, {
+    headers: { 'x-hamolus-mcp-version': 'v'.repeat(64) },
+  })
+  ok(
+    'an implausible reported version is dropped, not truncated',
+    (await readInstance())?.reportedVersion === '0.2.10',
+    JSON.stringify(await readInstance()).slice(0, 200),
+  )
+
+  // A machine call with no header must not erase what the deployment last said: an
+  // older worker is alive, it just cannot report.
+  await mreq('/api/_mcp/config', instanceId)
+  ok(
+    'a worker that sends no version keeps the last one it reported',
+    (await readInstance())?.reportedVersion === '0.2.10',
+    JSON.stringify(await readInstance()).slice(0, 200),
+  )
+
+  // The load-bearing one. `mcp.write` may set anything the *operator* controls, and
+  // nothing else: a body that names a version is refused by the strict schema, and the
+  // stored value is unchanged afterwards. The 400 is the first line of defence; the
+  // assertion below is the second — that even a refused write left the row alone.
+  const [patchStatus, patched] = await putJson(
+    `/api/_mcp/instances/${instanceId}?colony=${COLONY_A}`,
+    { label: `${STAMP} renamed`, reportedVersion: '9.9.9' },
+  )
+  ok('an operator cannot send a reported version at all', patchStatus === 400, `status ${patchStatus} ${JSON.stringify(patched).slice(0, 200)}`)
+  ok(
+    'and the row still reports what the deployment said',
+    (await readInstance())?.reportedVersion === '0.2.10',
+    JSON.stringify(await readInstance()).slice(0, 200),
+  )
+
+  // The legitimate half of that write still works, or the check above would also pass
+  // against a route that rejects every body.
+  const [labelStatus] = await putJson(
+    `/api/_mcp/instances/${instanceId}?colony=${COLONY_A}`,
+    { label: `${STAMP} renamed` },
+  )
+  ok('an operator can still rename the instance', labelStatus === 200, `status ${labelStatus}`)
 
   /* -- a second instance, to pin that ids do not collide across colonies ---- */
   const [, instBBody] = await postJson(

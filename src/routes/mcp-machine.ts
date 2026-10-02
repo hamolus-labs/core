@@ -32,16 +32,24 @@
  * - 401 the credential itself is not accepted (missing, unknown, malformed)
  * - 403 the credential is fine but the thing it points at is switched off
  * - 400 the request is malformed
+ *
+ * Both routes also write a heartbeat — the deployment is live, and this is the release
+ * it runs — through `touchMcpInstanceHeartbeat`, which is deliberately the only writer
+ * of those two columns.
  */
 
 import { Hono } from 'hono'
 import { sign } from 'hono/jwt'
 import type { AuthTokenPayload } from '@hamolus/types'
-import { mcpSessionExchangeSchema } from '@hamolus/types'
+import { MCP_WORKER_VERSION_HEADER, mcpSessionExchangeSchema } from '@hamolus/types'
 import type { Env } from '../env'
 import { createDb } from '../db/client'
 import { badRequest, forbidden, unauthorized } from '../errors'
-import { getMcpInstanceConfig, verifyMcpToken } from '../auth/mcp'
+import {
+  getMcpInstanceConfig,
+  touchMcpInstanceHeartbeat,
+  verifyMcpToken,
+} from '../auth/mcp'
 
 export const mcpMachineRoutes = new Hono<{ Bindings: Env }>()
 
@@ -75,14 +83,24 @@ function instanceIdFromHeader(header: string | undefined): string {
  * Deliberately unauthenticated apart from the instance id, and deliberately thin.
  * Leaking an id costs a description of the tool surface — not data, not a
  * session — because minting a session needs a per-user token on top.
+ *
+ * This is also where a deployment registers itself, in the sense that matters to an
+ * operator: a worker that reaches this route is alive, and it says which release it
+ * is in `MCP_WORKER_VERSION_HEADER`. Recording that is the only way the console can
+ * tell a registered instance from a live one — an `enabled` row with no `lastSeenAt`
+ * is a credential nobody has deployed yet, which looks identical to a healthy
+ * instance until something is wrong.
  */
 mcpMachineRoutes.get('/config', async (c) => {
-  const instance = await getMcpInstanceConfig(createDb(c.env.DB), instanceIdFromHeader(c.req.header('authorization')))
+  const db = createDb(c.env.DB)
+  const instanceId = instanceIdFromHeader(c.req.header('authorization'))
+  const instance = await getMcpInstanceConfig(db, instanceId)
   // 403: the id was accepted, and the answer is "this one is switched off". That is
   // a different problem from a bad id, and the console toggle is where it gets fixed.
   if (!instance.enabled) {
     throw forbidden('This MCP instance is disabled', 'MCP_DISABLED')
   }
+  await touchMcpInstanceHeartbeat(db, instanceId, c.req.header(MCP_WORKER_VERSION_HEADER))
   return c.json({ data: { instance } })
 })
 
@@ -114,6 +132,10 @@ mcpMachineRoutes.post('/session', async (c) => {
   // instance cannot be redeemed through another. See `verifyMcpToken` for why that
   // check is not redundant.
   const { token, instance, permissions } = await verifyMcpToken(db, parsed.data.token, instanceId)
+
+  // After verification, not before: a rejected credential is an attack or a typo, and
+  // neither should make a deployment look healthy to an operator watching `lastSeenAt`.
+  await touchMcpInstanceHeartbeat(db, instanceId, c.req.header(MCP_WORKER_VERSION_HEADER))
 
   const iat = Math.floor(Date.now() / 1000)
   const expiresAt = new Date((iat + SESSION_TTL_SECONDS) * 1000)

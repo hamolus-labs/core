@@ -17,6 +17,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { AuthTokenPayload } from '@hamolus/types'
 import type { Env } from './env'
 import { publicGetsEnabled } from './env'
+import { CORE_VERSION } from './version'
 import { createDb } from './db/client'
 import { HttpError } from './errors'
 import { ensurePrivileges } from './auth/privileges'
@@ -52,6 +53,12 @@ export { setCoreConfig, getCoreConfig } from './config'
 export type { CoreConfig }
 export { getCodeDefinitions, setCodeDefinitions } from './definitions'
 export type { CodeDefinitions }
+// `CORE_VERSION` is deliberately *not* re-exported here even though every other
+// configurability seam above is. This module is the Worker entry, and workerd accepts
+// only `fetch`, a scheduled handler and a few named objects as its exports — any other
+// named export is a startup failure ("not of type 'function or ExportedHandler'"), not
+// a warning. A project that wants the number on its own route imports it from
+// `@hamolus/core/version` instead.
 const AUTH_SKIP = new Set(['/api/_auth/token', '/api/_auth/login', '/api/_auth/setup', '/api/_auth/super', '/api/health'])
 
 type AppEnv = {
@@ -143,8 +150,14 @@ async function bootstrapScope(
   await ensureCodeDefinitions(db, land, colony)
 }
 
-app.get('/', (c) => c.json({ ok: true, service: 'core' }))
-app.get('/api/health', (c) => c.json({ ok: true, service: 'core' }))
+// `version` is what the console reads to tell an operator what this core actually is.
+// `service`/`ok` alone cannot answer that: the core keeps serving happily across a
+// release, so "is it up" and "is it current" are different questions and only the second
+// one needs the number. Keeping it on the *public* `/api/health` is deliberate — the
+// login page shows it before there is a token to send, and an operator who mistyped a
+// URL should see which core answered rather than a bare "unauthorized".
+app.get('/', (c) => c.json({ ok: true, service: 'core', version: CORE_VERSION }))
+app.get('/api/health', (c) => c.json({ ok: true, service: 'core', version: CORE_VERSION }))
 
 // Public media file serving (outside /api, no JWT; used by console + site <img>).
 // Direct image requests (<img>, fetch) get the raw bytes; a browser navigation

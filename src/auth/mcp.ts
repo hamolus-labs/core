@@ -63,6 +63,14 @@ export interface McpInstanceRow {
   tool_groups: string
   dynamic_tools: string
   dynamic_max: number
+  /**
+   * What the worker said it was running, and when it last said it. Both are written
+   * only by `touchMcpInstanceHeartbeat`, never by an operator route — a reported
+   * version is a claim made by the deployment, and accepting one from a request body
+   * would let the console certify a version that nothing is running.
+   */
+  reported_version: string | null
+  last_seen_at: string | null
   created_at: string
   updated_at: string
 }
@@ -97,12 +105,29 @@ export async function ensureMcpTables(db: Db): Promise<void> {
           tool_groups TEXT NOT NULL DEFAULT 'records,media,meta',
           dynamic_tools TEXT NOT NULL DEFAULT '',
           dynamic_max INTEGER NOT NULL DEFAULT 10,
+          reported_version TEXT,
+          last_seen_at TEXT,
           created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
           updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
           PRIMARY KEY (land, colony, id)
         )
       `))
       .then(async () => {
+        // `CREATE TABLE IF NOT EXISTS` is a no-op against a table a previous release
+        // already made, and this one predates the two heartbeat columns — so a core
+        // upgraded in place has a table without them and every `SELECT *` maps the
+        // following two onto `undefined`. The same PRAGMA-diff `ADD COLUMN` pass the
+        // other internal tables use, so an upgraded core reports "never seen" for its
+        // existing rows rather than failing the whole MCP surface.
+        const cols = await db.all<{ name: string }>(
+          sql`PRAGMA table_info('_mcp_instances')`,
+        )
+        if (!cols.some((c) => c.name === 'reported_version')) {
+          await db.run(sql`ALTER TABLE _mcp_instances ADD COLUMN reported_version TEXT`)
+        }
+        if (!cols.some((c) => c.name === 'last_seen_at')) {
+          await db.run(sql`ALTER TABLE _mcp_instances ADD COLUMN last_seen_at TEXT`)
+        }
         await db.run(sql.raw(`
           CREATE TABLE IF NOT EXISTS ${TOKEN_TABLE} (
             land TEXT NOT NULL DEFAULT 'root_lnd',
@@ -222,6 +247,8 @@ function rowToInstance(row: McpInstanceRow, counts: { total: number; active: num
     dynamicMax: row.dynamic_max,
     tokenCount: counts.total,
     activeTokenCount: counts.active,
+    reportedVersion: row.reported_version ?? null,
+    lastSeenAt: row.last_seen_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -273,6 +300,54 @@ function rowToToken(row: McpTokenRow): McpToken {
 export interface McpInstanceTarget {
   land?: string
   colony?: string
+}
+
+/**
+ * Accepts a semver-ish string an MCP worker claims for itself, or nothing.
+ *
+ * The cap is the part that matters. This value is stored and rendered in the console,
+ * so a worker is not allowed to write an unbounded string into a column another party
+ * reads; 32 characters covers `0.2.10` and every `1.0.0-rc.1` shape the release
+ * tooling can produce. An over-long claim is dropped to `null` rather than truncated,
+ * because a version cut mid-string is a wrong answer and "did not report" is not.
+ */
+const REPORTED_VERSION_PATTERN = /^[\w.+-]{1,32}$/
+
+/**
+ * Record that a deployment reached this core, and which release it says it is.
+ *
+ * Called from the machine routes on every authenticated worker request, which makes
+ * two decisions worth spelling out:
+ *
+ * - **`land`/`colony` are not filtered.** The instance id is unique platform-wide and
+ *   is the only credential on those routes — a worker holding one cannot know its own
+ *   scope, because asking for the config is how it learns it. Narrowing this by a
+ *   header would mean refusing to record a heartbeat for a worker that did nothing
+ *   wrong.
+ * - **`updated_at` is left alone.** This is machine bookkeeping on an operator row; if
+ *   it bumped `updated_at`, every poll would make an untouched instance look edited
+ *   and the console's "changed" ordering would become meaningless.
+ *
+ * A missing `version` argument still stamps `last_seen_at`: liveness and version are
+ * independent facts, and an older worker that does not report its release is still
+ * alive. Recording the two together — or refusing the heartbeat when the version is
+ * absent — would lose the first fact because of a missing second one.
+ */
+export async function touchMcpInstanceHeartbeat(
+  db: Db,
+  id: string,
+  version: string | undefined,
+): Promise<void> {
+  await ensureMcpTables(db)
+  const reported = version && REPORTED_VERSION_PATTERN.test(version) ? version : null
+  // One statement rather than a read-then-write: the row may legitimately not exist
+  // (deleted between the credential check and here), and `changes === 0` is the same
+  // "nothing to record" either way, with no chance of the two disagreeing.
+  await db.run(
+    sql`UPDATE ${sql.raw(INSTANCE_TABLE)} SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+         reported_version = COALESCE(${reported}, reported_version)
+       WHERE id = ${id}`,
+  )
 }
 
 export async function listMcpInstances(

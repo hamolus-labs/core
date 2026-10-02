@@ -40,6 +40,7 @@ pnpm -F @hamolus/core db:setup         # apply scripts/bootstrap.sql to the loca
 | `src/auth/` | password hashing, sessions/JWT, privileges, super-admin bootstrap |
 | `src/media/`, `src/files/` | R2-backed media, file storage, signed panel assets |
 | `src/config.ts` | build-time project config (`core.config.ts`), applied before the first request |
+| `src/version.ts` | `CORE_VERSION`, reported on `/` and `/api/health`. Exported from the `@hamolus/core/version` subpath — **never** re-exported from `src/index.ts`, because workerd rejects any named export of a Worker entry that is not a handler |
 | `src/definitions.ts` | code-defined collections and panels, applied on boot per scope |
 | `wrangler.jsonc` | bindings and `CORE_MODE`; copied from `templates/cores/*` when a project is generated |
 
@@ -113,6 +114,14 @@ and the gate pins all of:
   `403` the credential is fine but the instance is switched off, `400` the request is
   malformed. The *message* must never separate "unknown id" from "revoked token" or ids
   become enumerable; only the status may.
+- **Only a worker may write `reported_version` / `last_seen_at`.** They are what the
+  console shows as "deployed, running vX", so an operator-writable version would let the
+  console certify a release that is not deployed. Neither key is in
+  `mcpInstanceCreateSchema`/`Update` (strict, so a body naming one is a 400), and
+  `touchMcpInstanceHeartbeat` is the single writer — called *after* the credential is
+  accepted, or a probe of a guessed id marks a live deployment as alive. It does not
+  touch `updated_at`: a heartbeat every minute would make an untouched instance look
+  edited.
 
 `check:config-scope-acl` exists because a `_configs` row is keyed by
 `(land, colony, key)`: the `?land=` / `?colony=` query on `/_config` is a *request*, and
