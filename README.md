@@ -22,6 +22,14 @@ wrangler secret put ADMIN_KEY
 
 or paste them into Settings → Variables and Secrets in the dashboard. Use
 different values than the ones in a local `.dev.vars`.
+
+**`PUBLIC_GETS` ships as `true`, which means every unauthenticated `GET` on this
+worker answers** — all collections, records, settings and media, with no token. That
+is what an SSG site needs and what a private install does not. Set it to `false` in
+Settings → Variables and Secrets unless you are serving a public read-only site.
+`CORE_MODE`, `DEFAULT_LAND` and `DEFAULT_COLONY` are declared too, so you can see and
+change the scope without editing the config; `default` there is the reserved sentinel
+for the unnamed scope (`root_lnd` / `root_cny`), not a land by that name.
 <!-- deploy:end -->
 
 The Hamolus core API: a Hono + Drizzle Cloudflare Worker that turns collection
@@ -41,9 +49,17 @@ validation, coercion, search, relations and localization.
 | `SETTINGS` | KV — the settings blob |
 | `MEDIA` | R2 — media, files and private panel assets |
 
-`CORE_MODE` (`independent` | `centralized` | `proxy` | `bridge`) and `DEFAULT_LAND`
-control land resolution. `JWT_SECRET`, `ADMIN_KEY`, `PANEL_ASSET_SECRET` and the
-`SUPER_ADMIN_*` pair are **secrets**, not vars.
+`CORE_MODE` (`independent` | `centralized` | `proxy` | `bridge`), `DEFAULT_LAND` and
+`DEFAULT_COLONY` control scope resolution, and all three are declared in
+`wrangler.jsonc` so they show up in the dashboard rather than hiding behind a code
+default. In `DEFAULT_LAND`/`DEFAULT_COLONY`, `default` is the reserved sentinel for the
+unnamed scope — the ids are `root_lnd` / `root_cny` — and a real name there is what moves
+a deployment onto a named land.
+
+`PUBLIC_GETS` (`true`) makes every unauthenticated `GET` answer: all collections,
+records, settings and media, no token. That is what an SSG site needs and what a private
+install does not want. `JWT_SECRET`, `ADMIN_KEY`, `PANEL_ASSET_SECRET` and the
+`SUPER_ADMIN_*` pair are **secrets**, not vars, and a committed config cannot carry them.
 
 ## Use it
 

@@ -34,13 +34,41 @@
     }
   ],
 
+  // Declared, not defaulted-in-code.
+  //
+  // `Env` reads all four with a fallback, so leaving them out works and looks like it
+  // works — and that is the problem: the Cloudflare dashboard then shows no such
+  // variables at all, so there is nothing to inspect or change without editing this
+  // file. Declaring them changes no behaviour; it makes the effective scope visible.
+  //
+  // `default` is the reserved sentinel for "the unnamed scope", not the name of a land
+  // called `default`: `scopeNameSchema` rejects it as a reserved name, so `scope.ts`
+  // falls through to `root_lnd` / `root_cny`. That is what `hamolus create` writes into
+  // a generated core too, so the two agree — but it is why a real name here is what
+  // actually moves a deployment onto a named land.
+  //
+  // Land and colony are *names* here, not `*_lnd` / `*_cny` ids.
   "vars": {
-    // Credentials (JWT_SECRET, ADMIN_KEY, PANEL_ASSET_SECRET) are set as SECRETS,
-    // never as vars: `wrangler secret put JWT_SECRET`. A secret cannot share a name
-    // with a var, so none are declared here.
+    // Multi-tenant mode: independent | centralized | proxy | bridge
+    "CORE_MODE": "independent",
+
+    // Land used by bare (unprefixed) tenant requests.
+    "DEFAULT_LAND": "default",
+
+    // Colony used by bare requests and by `x-land`-only (land admin) requests.
+    "DEFAULT_COLONY": "default",
+
     // PUBLIC_GETS=true lets the generated console read collections/settings without
     // a token (GET only); writes and /api/_auth/* always require a session.
-    // Set it to "false" for anything public-facing and hand out scoped tokens instead.
+    //
+    // Read that as "every unauthenticated GET on this worker answers". Set it to
+    // "false" for anything public-facing and hand out scoped tokens instead.
     "PUBLIC_GETS": "true"
   }
+
+  // Credentials (JWT_SECRET, ADMIN_KEY, PANEL_ASSET_SECRET, SUPER_ADMIN_USERNAME /
+  // SUPER_ADMIN_PASSWORD) are SECRETS, never vars — a secret and a var cannot share a
+  // name, and a committed config must not carry them:
+  //   wrangler secret put JWT_SECRET
+  //   wrangler secret put ADMIN_KEY
 }
