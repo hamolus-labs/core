@@ -21,4 +21,4 @@ allowBuilds:
 # Published from the same release as this repository, so necessarily newer than
 # any minimum-release-age window.
 minimumReleaseAgeExclude:
-  - '@hamolus/types@0.2.12'
+  - '@hamolus/types@0.2.13'
