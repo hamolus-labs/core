@@ -63,7 +63,7 @@
     //
     // Read that as "every unauthenticated GET on this worker answers". Set it to
     // "false" for anything public-facing and hand out scoped tokens instead.
-    "PUBLIC_GETS": "true"
+    "PUBLIC_GETS": "false"
   }
 
   // Credentials (JWT_SECRET, ADMIN_KEY, PANEL_ASSET_SECRET, SUPER_ADMIN_USERNAME /

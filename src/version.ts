@@ -28,4 +28,4 @@
  * the console then shows an operator a version that does not match the behaviour they
  * are looking at.
  */
-export const CORE_VERSION = '0.2.14'
+export const CORE_VERSION = '0.2.15'

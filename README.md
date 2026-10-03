@@ -23,12 +23,18 @@ wrangler secret put ADMIN_KEY
 or paste them into Settings → Variables and Secrets in the dashboard. Use
 different values than the ones in a local `.dev.vars`.
 
-**`PUBLIC_GETS` ships as `true`, which means every unauthenticated `GET` on this
-worker answers** — all collections, records, settings and media, with no token. That
-is what an SSG site needs and what a private install does not. Set it to `false` in
-Settings → Variables and Secrets unless you are serving a public read-only site.
+**`PUBLIC_GETS` ships as `false`, so this core answers only authenticated requests.**
+The monorepo runs its own core with it `true`, because examples and sites read it over
+plain unauthenticated `GET`s; a Worker on a public hostname is a different situation,
+and that flag would hand every collection, record, settings blob and media object to
+anyone who asked. A site you add later will get `403` until you turn it on:
+
+```bash
+# Settings → Variables and Secrets → PUBLIC_GETS, set to true
+```
+
 `CORE_MODE`, `DEFAULT_LAND` and `DEFAULT_COLONY` are declared too, so you can see and
-change the scope without editing the config; `default` there is the reserved sentinel
+change the scope without editing the config. `default` there is the reserved sentinel
 for the unnamed scope (`root_lnd` / `root_cny`), not a land by that name.
 <!-- deploy:end -->
 

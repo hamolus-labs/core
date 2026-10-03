@@ -1,6 +1,6 @@
 {
   "name": "@hamolus/core",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "type": "module",
   "license": "MIT",
   "author": "Gilang Albathin Nurhabibi <https://github.com/athron98>",
@@ -70,7 +70,7 @@
     "check:localization-api": "node scripts/check-localization-api.mjs"
   },
   "dependencies": {
-    "@hamolus/types": "^0.2.14",
+    "@hamolus/types": "^0.2.15",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.8",
     "zod": "^4.6.5"
